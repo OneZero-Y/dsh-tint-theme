@@ -1,0 +1,3 @@
+[submodule ".dsh-plugin-kit"]
+	path = .dsh-plugin-kit
+	url = https://github.com/OneZero-Y/dsh-plugin-kit.git
