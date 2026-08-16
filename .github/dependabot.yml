@@ -8,3 +8,12 @@ updates:
     directory: "/"
     schedule:
       interval: "daily"
+    # GitHub applies a default 3-day cooldown to version updates as of the
+    # 2026-07-14 platform change (a fresh commit on dsh-plugin-kit's default
+    # branch is ignored until it's 3 days old, even after a manual "Check
+    # for updates"). This kit is actively developed and its fixes are meant
+    # to reach this plugin quickly, not wait out a security-vendor-review
+    # window meant for public package registries — set to 0 to disable it
+    # for this submodule specifically.
+    cooldown:
+      default-days: 0
