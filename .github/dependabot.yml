@@ -1,0 +1,10 @@
+version: 2
+updates:
+  # Auto-bumps the .dsh-plugin-kit submodule pointer whenever
+  # OneZero-Y/dsh-plugin-kit's default branch moves — opens a PR here
+  # instead of requiring a manual `git submodule update --remote` +
+  # commit + push cycle.
+  - package-ecosystem: "gitsubmodule"
+    directory: "/"
+    schedule:
+      interval: "daily"
