@@ -1,0 +1,15 @@
+# The bundle patch applied to a profile when this package is installed with
+# `dsh plugin --profile <name> add <spec>`.
+#
+# `id` is deployment-local — it does not need to match the npm package name
+# or the Cordis plugin `name` export. `name` here must be the installed
+# package name so Node module resolution finds the code once this leaves the
+# development checkout.
+#
+# This plugin has no host-side configuration (see src/index.ts) — everything
+# it does runs in the client half, activated through the `dsh.client`
+# manifest field in package.json, not through this patch's `config`.
+
+- insert:
+    - id: dsh-tint-theme
+      name: '@onezero-y/dsh-tint-theme'
