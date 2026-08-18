@@ -4,34 +4,32 @@
  *
  * Registers every shipped skin family into the official `ThemeService` (the
  * sanctioned third-party theme surface, `ctx.theme.register(...)`) and adds
- * a picker row to the settings General section (`ctx.slots`). Selection
- * state is driven entirely from the theme service's own live snapshot
- * (`ctx.theme.getTheme()` + the `theme/change` event) — this plugin does
- * NOT persist a preference of its own. That is a deliberate architecture
- * decision, not an oversight: confirmed against the official
- * `deepseek-ai/deepseek-harness` checkout, `packages/host/apiproxy`'s own
- * `WEB_SETTINGS_NAMESPACES` allowlist means a third-party plugin's own
- * settings namespace is never exposed to the browser
- * (`settings-not-exposed`, identical to an unregistered namespace), so a
- * picker driven by that channel can never reflect a correct selected state.
- * Cross-reload persistence of the *choice itself* rides whatever mechanism
- * the built-in Appearance row's own preference already uses (the theme
- * service's own settings document, for its own three built-in ids) when
- * the active id is one of this plugin's; for a third-party id specifically,
- * that document is not written back to (confirmed by reading the installed
- * `dsh-client-ui-theme` package's own compiled `ThemeRuntime.setTheme`), so
- * a reload currently returns to whatever the built-in Appearance row's own
- * persisted preference is. Adding this plugin's own localStorage-backed
- * persistence layer (the pattern several third-party skin plugins use to
- * work around the same allowlist boundary) is a candidate follow-up, not
- * implemented in this pass.
+ * a picker row to the settings General section (`ctx.slots`). The picker's
+ * SELECTED TILE always mirrors the theme service's own live snapshot
+ * (`ctx.theme.getTheme()` + the `theme/change` event), because that state
+ * must reflect whichever theme id is actually active regardless of who set
+ * it. Cross-reload persistence of the user's CHOICE is a separate concern,
+ * handled through this plugin's own settings namespace, bound via
+ * `ctx.settingsScope.bind(...)` and written on every explicit
+ * `selectFamily` call; on boot, the persisted family (if any) is applied
+ * back through `ctx.theme.setTheme` once the scope's first snapshot lands.
+ *
+ * Persistence history: earlier revisions of this plugin could not persist a
+ * selection of their own — the official `deepseek-ai/deepseek-harness`
+ * checkout's `packages/host/apiproxy` gated every third-party settings
+ * namespace behind a hardcoded `WEB_SETTINGS_NAMESPACES` allowlist, so a
+ * namespace outside it answered `settings-not-exposed` regardless of
+ * registration. That allowlist was removed in the official repository's
+ * `2026-08-12-plugin-owned-settings-surface` Agent Note ("Registering is
+ * exposing"), first released in `@deepseek-ai/dsh-client-ui-theme`
+ * `0.1.0-rc.7`, which this plugin now requires.
  *
  * IMPORTANT — client bundle purity gate: none of `@deepseek-ai/dsh-client-ui-theme`,
- * `-ui-slots`, or `-locale` are in the host loader's frozen module table, so
- * this module tree must never import a *value* from them — only types
- * (erased at build time). Every service instance below (`ctx.theme`,
- * `ctx.slots`, `ctx.locale`) is obtained exclusively through Cordis service
- * injection.
+ * `-ui-slots`, `-ui-settings`, or `-locale` are in the host loader's frozen
+ * module table, so this module tree must never import a *value* from them —
+ * only types (erased at build time). Every service instance below
+ * (`ctx.theme`, `ctx.slots`, `ctx.locale`, `ctx.settingsScope`) is obtained
+ * exclusively through Cordis service injection.
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
@@ -43,6 +41,14 @@ import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+// Type-only: pulls the `ctx.connection` / `ctx.remote` Context merges that
+// `settingsScope.bind()` resolves through (see its own doc comment: "The
+// caller injects `connection` for the transport and `remote` for the
+// forwarded settings invalidation"). This plugin never imports a value from
+// either package — both services are provided elsewhere in the composed
+// bundle, reached here only through `inject` + declaration merging.
+import type {} from '@deepseek-ai/dsh-client-connection/client'
+import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type { ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { createAdaptiveResolver, type AdaptiveResolver } from './adaptive.ts'
 import { SKIN_FAMILIES } from './families/index.ts'
@@ -50,6 +56,9 @@ import { en, zh, type SkinKey } from './locales.ts'
 import { createSkinRowStore } from './settings-store.ts'
 import { findFamilyBySkinId, skinIdsOfFamily } from './skins.ts'
 import { SkinRow, type SkinRowInjected } from './SkinRow.tsx'
+// This plugin's own host-shared settings constants/types: no `dsh-client-*`
+// value import here, so this stays clear of the client bundle purity gate.
+import { SKIN_SETTINGS_FIELD, SKIN_SETTINGS_NAMESPACE, type SkinSettings } from '../skin-settings.ts'
 
 /** Stable Cordis plugin id for the client half. */
 export const name = 'dsh-tint-theme-client'
@@ -64,13 +73,20 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-/** Required client services: theme (register + read/write active theme), slots + locale (settings row). */
-export const inject = ['theme', 'slots', 'locale']
+/**
+ * Required client services: theme (register + read/write active theme),
+ * slots + locale (settings row), settingsScope (this plugin's own durable
+ * selection), and connection + remote (the transport `settingsScope.bind()`
+ * resolves through — the same pair the official ui-theme plugin injects for
+ * the identical reason; see its own `inject` list).
+ */
+export const inject = ['theme', 'slots', 'locale', 'settingsScope', 'connection', 'remote']
 
 /**
  * Client plugin body: register every shipped family into `ctx.theme`, keep
- * an adaptive resolver listening for system color-scheme flips, and
- * register the skin picker row into Settings > General.
+ * an adaptive resolver listening for system color-scheme flips, restore any
+ * durably persisted selection on boot, and register the skin picker row
+ * into Settings > General.
  * @param ctx - Client Cordis context, with the services above guaranteed present.
  */
 export function apply(ctx: ClientContext): void {
@@ -103,6 +119,28 @@ export function apply(ctx: ClientContext): void {
     }
   }, 'dsh-tint-theme: adaptive family resolver')
 
+  const scope = ctx.settingsScope.bind<SkinSettings>({ namespace: SKIN_SETTINGS_NAMESPACE })
+
+  // Apply the persisted family exactly once, the first time the scope's
+  // snapshot leaves `loading` (either `ready` with a stored choice, or
+  // `unavailable`/`ready`-with-no-field, which leaves the built-in
+  // Appearance row's own preference untouched). Later scope changes are this
+  // plugin's own writes echoing back — re-applying them is a harmless no-op
+  // (`ThemeRuntime.setTheme` already skips a write when the id is unchanged).
+  let appliedInitialSelection = false
+  const applyInitialSelection = (): void => {
+    if (appliedInitialSelection) return
+    const snapshot = scope.getSnapshot()
+    if (snapshot.status === 'loading') return
+    appliedInitialSelection = true
+    const familyId = snapshot.value?.familyId
+    if (familyId !== undefined && SKIN_FAMILIES.some((family) => family.id === familyId)) {
+      adaptive?.selectFamily(familyId)
+    }
+  }
+  ctx.effect(() => scope.subscribe(applyInitialSelection), 'dsh-tint-theme: apply persisted selection')
+  applyInitialSelection()
+
   const store = createSkinRowStore()
   let bound: BoundActions<typeof store> | undefined
   const sync = (snapshot: ThemeSnapshot): void => {
@@ -127,9 +165,15 @@ export function apply(ctx: ClientContext): void {
           // available approximation.
           const scheme = ctx.theme.getTheme().active.colorScheme
           ctx.theme.setTheme(scheme === 'dark' ? 'dark' : 'light')
+          void scope.unset(SKIN_SETTINGS_FIELD)
           return
         }
         adaptive?.selectFamily(familyId)
+        // Persist the explicit choice so a reload restores it (see
+        // `applyInitialSelection` above) — the actual write-back this
+        // plugin gained once the official settings-namespace allowlist was
+        // removed (module doc, "Persistence history").
+        void scope.set(SKIN_SETTINGS_FIELD, familyId)
       },
     }
   }

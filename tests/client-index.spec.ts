@@ -19,7 +19,7 @@ describe('client module export shape (function form)', () => {
 
   it('exports the Loader-facing named contract', () => {
     expect(clientPlugin.name).toBe('dsh-tint-theme-client')
-    expect(clientPlugin.inject).toEqual(['theme', 'slots', 'locale'])
+    expect(clientPlugin.inject).toEqual(['theme', 'slots', 'locale', 'settingsScope', 'connection', 'remote'])
     expect(typeof clientPlugin.apply).toBe('function')
   })
 })

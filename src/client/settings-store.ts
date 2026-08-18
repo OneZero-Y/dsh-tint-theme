@@ -2,17 +2,17 @@
  * Skin row slot store: a projection of the OFFICIAL `ThemeService`'s own
  * active-theme state onto the family the picker should show as selected.
  *
- * This deliberately does NOT read or write any settings namespace of this
- * plugin's own. Confirmed against the official `deepseek-ai/deepseek-harness`
- * checkout (`packages/host/apiproxy/src/api-proxy.ts`'s `WEB_SETTINGS_NAMESPACES`
- * allowlist, and its own doc comment: "a namespace absent from that list
- * answers `settings-not-exposed` ... even when its owner registered it"): a
- * third-party plugin's own settings namespace can never be exposed to the
- * browser, so a picker driven by that channel can never show a correct
- * selected state. The official `ThemeService`'s own live state (`ctx.theme`,
- * confirmed to be readable and to emit `theme/change`) is the only channel
- * this plugin has real read access to — so selection state is driven from
- * there, not from a settings write-back.
+ * The picker's SELECTED TILE is driven from `ThemeService`'s own live state
+ * (`ctx.theme`, read here and kept in sync by the caller's `theme/change`
+ * listener), not from this plugin's own settings namespace — the tile must
+ * reflect whichever theme id is actually active, including one set by
+ * another plugin or the built-in Appearance row, and the theme service is
+ * the only channel that state is authoritatively published on. Durable
+ * cross-reload persistence of the user's CHOICE is a separate concern,
+ * handled by this plugin's own settings namespace scope (bound in
+ * src/client/index.ts) — restoring that choice on boot still goes through
+ * `ctx.theme.setTheme`, so it still ends up reflected here through the same
+ * `theme/change` sync path.
  */
 import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-runtime/client'
 

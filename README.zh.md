@@ -6,7 +6,7 @@
 
 ## 环境要求
 
-- 已能正常运行 `dsh web` 的 DeepSeek Harness
+- 已能正常运行 `dsh web` 的 DeepSeek Harness，`@deepseek-ai/dsh-client-ui-theme` 需 `0.1.0-rc.7` 及以上（这是第一个把第三方 settings 命名空间暴露给浏览器的版本，详见下面"原理"一节）
 - Node.js >= 22.19（仅从源码 / 需要构建的 git 源安装时需要）
 
 ## 安装
@@ -43,7 +43,9 @@ dsh plugin --profile <你的 profile> remove @onezero-y/dsh-tint-theme
 
 本插件没有宿主侧配置项——所有行为都在客户端半，通过 `package.json` 里的 `dsh.client` 字段激活。每个家族的浅色和深色皮肤都注册进官方的 `ThemeService`（`ctx.theme.register(...)`，第三方主题的官方合法入口）；设置行通过 `ctx.slots` 注册。
 
-本插件不维护自己的持久化存储。DSH 自带的 settings 命名空间传输机制（`ctx.settingsScope`）在宿主侧有一份固定白名单，第三方插件的命名空间永远不会被加进去，所以插件自己的偏好存储在浏览器侧永远读不回正确的值。取而代之，本插件直接跟随主题服务自身的活动态（`ctx.theme.getTheme()` 和 `theme/change` 事件）——选择器里被选中的瓦片始终反映当前真正生效的主题 id，不管这个 id 是别的插件设置的，还是内置"外观"行设置的。选择本身跨刷新是否保留，取决于内置"外观"行自己的偏好存档机制对当前生效 id 的处理方式。
+选择器里被选中的瓦片始终跟随主题服务自身的活动态（`ctx.theme.getTheme()` 和 `theme/change` 事件）——不管当前生效的主题 id 是别的插件设置的，还是内置"外观"行设置的，瓦片都会正确反映它。用户的**选择**本身跨刷新是否保留，走的是本插件自己的 settings 命名空间（`ctx.settingsScope.bind(...)`，在 `src/index.ts` 里做宿主侧注册）：每次显式选择都会写进去，启动时再把持久化的家族通过 `ctx.theme.setTheme` 应用回去。
+
+这在早期版本里做不到。针对 `dsh-client-ui-theme` `rc.6` 及更早版本的旧版插件无法持久化自己的选择：官方 `deepseek-ai/deepseek-harness` 宿主侧有一份硬编码白名单，拦住了所有第三方 settings 命名空间，插件自己注册的偏好存储在浏览器侧永远读不回来，跟有没有注册无关。这份白名单已经在官方仓库里被移除（"注册即暴露"——详见官方仓库的 `2026-08-12-plugin-owned-settings-surface` Agent Note），`rc.7` 是第一个带上这个修复的版本，本插件现在要求这个版本。
 
 每个家族的配色数值都移植自具名的上游开源项目；从该项目语义化调色板到 DSH 自己的 `--dsw-alias-*`/`--dsw-specific-*` 设计 token 的映射，是本插件自己的实现。逐家族的署名和许可证全文见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
 
