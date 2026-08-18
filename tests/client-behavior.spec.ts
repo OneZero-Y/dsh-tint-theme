@@ -75,7 +75,7 @@ function createFakeSettingsScope(initialFamilyId?: string) {
   return { settingsScope, scope, set, unset }
 }
 
-/** Captures the `settings.general.item` registration this plugin makes. */
+/** Captures the `settings.section` registration this plugin makes. */
 function createFakeSlots() {
   let capturedOptions: { inject?: (...args: never[]) => unknown } | undefined
   const registerDispose = vi.fn()
@@ -95,7 +95,10 @@ function createFakeSlots() {
 function createFakeLocale() {
   const registerDispose = vi.fn()
   const calls: Array<{ ns: string }> = []
-  const locale = { register: vi.fn((ns: string) => { calls.push({ ns }); return registerDispose }) }
+  const locale = {
+    register: vi.fn((ns: string) => { calls.push({ ns }); return registerDispose }),
+    bind: vi.fn(() => (key: string) => key),
+  }
   return { locale, calls, registerDispose }
 }
 
@@ -149,11 +152,11 @@ describe('mounting', () => {
     expect(localeFake.calls[0]?.ns).toBe('settings.dsh-tint-theme')
   })
 
-  it('registers exactly one settings.general.item row, ordered after the stock Appearance row', async () => {
+  it('registers exactly one settings.section page, ordered after the shipped nav rows', async () => {
     await mount()
-    expect(slotsFake.slots.inject).toHaveBeenCalledWith('settings.general.item', expect.any(Function))
+    expect(slotsFake.slots.inject).toHaveBeenCalledWith('settings.section', expect.any(Function))
     const options = slotsFake.getOptions()
-    expect(options).toMatchObject({ name: 'settings.general.item', id: 'dsh-tint-theme', order: 20 })
+    expect(options).toMatchObject({ name: 'settings.section', id: 'dsh-tint-theme', order: 25 })
   })
 })
 

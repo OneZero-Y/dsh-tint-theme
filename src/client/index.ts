@@ -4,7 +4,10 @@
  *
  * Registers every shipped skin family into the official `ThemeService` (the
  * sanctioned third-party theme surface, `ctx.theme.register(...)`) and adds
- * a picker row to the settings General section (`ctx.slots`). The picker's
+ * a dedicated "Skins" page to the settings nav (`ctx.slots`, `settings.section`)
+ * — a peer of Models/Agent Presets/Plugins, not a row inside General: 25+
+ * skins read poorly as one more crowded row, and every other multi-item
+ * settings surface in this ecosystem already gets its own page. The picker's
  * SELECTED TILE always mirrors the theme service's own live snapshot
  * (`ctx.theme.getTheme()` + the `theme/change` event), because that state
  * must reflect whichever theme id is actually active regardless of who set
@@ -35,7 +38,7 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls in the ambient `ctx.theme` / `ctx.locale` Context merges,
 // and (critically) the `SlotMap` declaration-merge for every settings slot
-// key ('settings.general.item' among them) that `dsh-client-ui-settings`
+// key ('settings.section' among them) that `dsh-client-ui-settings`
 // contributes — without importing any runtime value from them (erased at
 // build time).
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
@@ -85,8 +88,8 @@ export const inject = ['theme', 'slots', 'locale', 'settingsScope', 'connection'
 /**
  * Client plugin body: register every shipped family into `ctx.theme`, keep
  * an adaptive resolver listening for system color-scheme flips, restore any
- * durably persisted selection on boot, and register the skin picker row
- * into Settings > General.
+ * durably persisted selection on boot, and register the dedicated "Skins"
+ * settings page.
  * @param ctx - Client Cordis context, with the services above guaranteed present.
  */
 export function apply(ctx: ClientContext): void {
@@ -178,15 +181,22 @@ export function apply(ctx: ClientContext): void {
     }
   }
 
-  ctx.slots.inject('settings.general.item', () =>
+  // Nav label thunk, independent of any mounted component: the framework
+  // re-evaluates it per read (see resolveSlotLabel), so it follows the
+  // active locale without re-registration — the same pattern
+  // ui-settings-general/ui-agent-preset use for their own nav rows.
+  const t = ctx.locale.bind(SETTINGS_NS)
+
+  ctx.slots.inject('settings.section', () =>
     ctx.slots.register(
       {
-        name: 'settings.general.item',
-        // Ordered after the stock Appearance row (order: 10, per the
-        // installed dsh-client-ui-theme package) so this row reads as an
-        // addition alongside it.
+        name: 'settings.section',
+        // Ordered after the shipped nav rows (general: 0, models: 10,
+        // plugins: 15, agent-presets: 20, per their own installed packages)
+        // so this page reads as the newest addition, at the foot of the nav.
         id: 'dsh-tint-theme',
-        order: 20,
+        order: 25,
+        label: () => t('skins.title'),
         store,
         locale: SETTINGS_NS,
         inject: injected,

@@ -3,6 +3,7 @@
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
   'skins.title': '皮肤',
+  'skins.intro': '选择一套配色应用到界面上，涵盖多款知名开源编辑器主题与原创设计。',
   'skins.default': '默认',
   'skins.name.gruvbox': 'Gruvbox',
   'skins.name.solarized': 'Solarized',
@@ -37,6 +38,7 @@ export type SkinKey = keyof typeof zh
 /** English dictionary, checked complete against the zh key set. */
 export const en: Record<SkinKey, string> = {
   'skins.title': 'Skins',
+  'skins.intro': 'Pick a color scheme for the app, spanning well-known open-source editor themes and original designs.',
   'skins.default': 'Default',
   'skins.name.gruvbox': 'Gruvbox',
   'skins.name.solarized': 'Solarized',

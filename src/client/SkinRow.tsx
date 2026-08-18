@@ -1,13 +1,18 @@
 /**
- * Skin picker row registered into the General section item slot (the same
- * additive seat the built-in Appearance row occupies): a "Default" tile plus
- * one preview-swatch tile per shipped family. Clicking a tile activates that
- * family (light/dark resolved by the current system preference).
+ * Skin picker page, registered as its own `settings.section` nav entry (a
+ * peer of Models/Agent Presets/Plugins — not a row inside General): a
+ * "Default" tile plus one preview-swatch tile per shipped family. Clicking a
+ * tile activates that family (light/dark resolved by the current system
+ * preference). 25+ skins read poorly as one more row squeezed into General;
+ * a dedicated page gives the grid room and matches how every other
+ * multi-item settings surface in this ecosystem (Models, Agent Presets,
+ * Plugins) is organized.
  *
  * No CSS module or component library dependency: this file uses inline
  * styles keyed off the same `--dsw-alias-*` custom properties the active
- * theme already publishes, so this row's own chrome follows whichever theme
- * is active — the same approach every settings row in this ecosystem takes.
+ * theme already publishes, so this page's own chrome follows whichever
+ * theme is active — the same approach every settings row in this ecosystem
+ * takes.
  */
 import type { CSSProperties } from 'react'
 import type { PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
@@ -15,37 +20,43 @@ import { SKIN_FAMILIES } from './families/index.ts'
 import type { SkinKey } from './locales.ts'
 import type { createSkinRowStore } from './settings-store.ts'
 
-/** Injected business face: the one write this row makes. */
+/** Injected business face: the one write this page makes. */
 export interface SkinRowInjected {
   /** Activate a family by id, or `undefined` to defer back to the built-in appearance. */
   selectFamily: (familyId: string | undefined) => void
 }
 
 /** Full component props: runtime share + store share + locale seat + injected face. */
-export type SkinRowComponentProps = PropsRuntime<'settings.general.item'> &
+export type SkinRowComponentProps = PropsRuntime<'settings.section'> &
   PropsStore<ReturnType<typeof createSkinRowStore>> &
   PropsLocale<'settings.dsh-tint-theme'> &
   SkinRowInjected
 
-const rowStyle: CSSProperties = {
+const sectionStyle: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 10,
-  padding: '16px 0',
-  borderBottom: '1px solid var(--dsw-alias-border-l2)',
+  gap: 12,
+  maxWidth: 760,
+  color: 'var(--dsw-alias-label-primary)',
 }
 
-const titleStyle: CSSProperties = {
-  color: 'var(--dsw-alias-label-primary)',
-  fontSize: 14,
-  fontWeight: 400,
-  lineHeight: '22px',
+const headingStyle: CSSProperties = {
+  margin: 0,
+  fontSize: 18,
+  fontWeight: 600,
+}
+
+const introStyle: CSSProperties = {
+  margin: 0,
+  fontSize: 13,
+  color: 'var(--dsw-alias-label-tertiary)',
 }
 
 const gridStyle: CSSProperties = {
   display: 'flex',
   flexWrap: 'wrap',
   gap: 10,
+  marginTop: 4,
 }
 
 function tileStyle(selected: boolean): CSSProperties {
@@ -89,16 +100,17 @@ function labelStyle(selected: boolean): CSSProperties {
 }
 
 /**
- * Render the skin row.
+ * Render the skin picker page.
  * @param props - composed slot props.
- * @returns the row element tree.
+ * @returns the page element tree.
  */
 export function SkinRow({ t, selectFamily, useStore }: SkinRowComponentProps) {
   const familyId = useStore((s) => s.familyId)
 
   return (
-    <div style={rowStyle}>
-      <div style={titleStyle}>{t('skins.title')}</div>
+    <div style={sectionStyle}>
+      <h2 style={headingStyle}>{t('skins.title')}</h2>
+      <p style={introStyle}>{t('skins.intro')}</p>
       <div style={gridStyle}>
         <button type="button" style={tileStyle(familyId === undefined)} onClick={() => selectFamily(undefined)}>
           <div style={defaultSwatchStyle}>

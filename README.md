@@ -31,7 +31,7 @@ dsh plugin --profile <your-profile> add "$PWD"
 
 ## What you get
 
-A new row in **Settings > General**, right after the built-in Appearance row: a grid of tiles, one per skin family, plus a "Default" tile that hands control back to the built-in Appearance row. Picking a family activates its light or dark skin, matched to your current system color-scheme preference; if the system preference flips while a family is active, the plugin switches to that family's matching skin automatically.
+A new **Skins** entry in the Settings nav, alongside Models / Agent Presets / Plugins: a grid of tiles, one per skin family, plus a "Default" tile that hands control back to the built-in Appearance row. Picking a family activates its light or dark skin, matched to your current system color-scheme preference; if the system preference flips while a family is active, the plugin switches to that family's matching skin automatically.
 
 ## Uninstall
 
@@ -41,7 +41,7 @@ dsh plugin --profile <your-profile> remove @onezero-y/dsh-tint-theme
 
 ## How it works
 
-This plugin has no host-side configuration — all behavior lives in the client half, activated through the `dsh.client` manifest field. Every family's light and dark skin is registered into the official `ThemeService` (`ctx.theme.register(...)`, the sanctioned third-party theme surface); the settings row is registered through `ctx.slots`.
+Every family's light and dark skin is registered into the official `ThemeService` (`ctx.theme.register(...)`, the sanctioned third-party theme surface); the Skins page is registered as its own `settings.section` nav entry through `ctx.slots` — a peer of Models/Agent Presets/Plugins, not a row inside General, because 25+ skins read poorly as one more crowded row.
 
 The picker's SELECTED TILE always mirrors the theme service's own live state (`ctx.theme.getTheme()` and the `theme/change` event) — it reflects whichever theme id is actually active, including one set by another plugin or the built-in Appearance row. Cross-reload persistence of the user's CHOICE goes through this plugin's own settings namespace (`ctx.settingsScope.bind(...)`, host-registered in `src/index.ts`): every explicit pick is written there, and the persisted family is applied back through `ctx.theme.setTheme` on boot.
 
