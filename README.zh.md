@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-为 DeepSeek Harness (DSH) Web GUI 提供一套原创主题，外加一个独立的强调色叠加层。强调色叠加不挑主题——不管当前用的是本插件自带的主题、DSH 内置的浅色/深色，还是其他插件注册的主题，都能生效。
+为 DeepSeek Harness (DSH) Web GUI 提供一个皮肤选择器：25 套主题家族。其中 22 套移植自知名开源编辑器配色（Gruvbox、Solarized、Dracula、One Dark/Light、Nord、Catppuccin、Tokyo Night 等等——完整名单、上游仓库和许可证见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)），另外 3 套（Aftertype、Signalwave、Quietloop）是本插件自己的原创设计——不是移植自任何项目，也不指向或关联任何商业编辑器或 AI 编程工具。每套家族都有浅色和深色两个皮肤；切换系统的 `prefers-color-scheme` 时插件会自动跟着换成对应的那一个。
 
 ## 环境要求
 
@@ -31,12 +31,7 @@ dsh plugin --profile <你的 profile> add "$PWD"
 
 ## 装完能用到什么
 
-**设置 > 通用** 里会多出一行，紧跟在内置的"外观"行后面：
-
-- **色调主题**：关闭 / 浅色 / 深色。选浅色或深色会切换到本插件自带的"clay"主题（暖灰橙调，跟 DSH 默认的冷色调明显不同）。选"关闭"会让出主题控制权，回退到最后一个生效的选择——可能是内置的"外观"行，也可能是别的主题插件。
-- **强调色**：无，或者六个预设色块之一（ember 赭红 / saffron 藏红花黄 / moss 苔绿 / lagoon 青绿 / indigo 靛蓝 / plum 紫红）。这一项跟上面那一项无关：它会叠加在当前生效的任何主题上，包括 DSH 内置的浅色/深色，或者第三方主题。
-
-两项选择都会跨刷新持久化；在无法访问 settings 服务时（比如非本机的远程浏览器），选择只在当前进程内生效。
+**设置 > 通用** 里会多出一行，紧跟在内置的"外观"行后面：一整排瓦片，每个瓦片对应一套主题家族，外加一个"默认"瓦片用来把控制权交还给内置的"外观"行。点选某个家族会激活它的浅色或深色皮肤，具体选哪个跟随你当前的系统深浅色偏好；如果某个家族处于激活状态时系统偏好发生切换，插件会自动换成该家族对应的另一个皮肤。
 
 ## 卸载
 
@@ -46,9 +41,11 @@ dsh plugin --profile <你的 profile> remove @onezero-y/dsh-tint-theme
 
 ## 原理
 
-本插件没有宿主侧配置项——所有行为都在客户端半，通过 `package.json` 里的 `dsh.client` 字段激活。主题和强调色叠加都通过官方的 `ctx.theme` 服务注册（`register()` 注册主题，`overrideTokens()` 叠加强调色——只覆盖 `--dsw-alias-brand-primary` 这一个 token，是 DSH 主题服务自己文档里标注的"主品牌强调色"），设置行通过 `ctx.slots` 注册。两项偏好都存在本插件自己的 settings 命名空间里，不借用内置主题/语言的 settings 区。
+本插件没有宿主侧配置项——所有行为都在客户端半，通过 `package.json` 里的 `dsh.client` 字段激活。每个家族的浅色和深色皮肤都注册进官方的 `ThemeService`（`ctx.theme.register(...)`，第三方主题的官方合法入口）；设置行通过 `ctx.slots` 注册。
 
-clay 配色和六个强调色块都是原创设计，只有 DSH 定义的 `--dsw-alias-*` token 名称是共享的公共契约。
+本插件不维护自己的持久化存储。DSH 自带的 settings 命名空间传输机制（`ctx.settingsScope`）在宿主侧有一份固定白名单，第三方插件的命名空间永远不会被加进去，所以插件自己的偏好存储在浏览器侧永远读不回正确的值。取而代之，本插件直接跟随主题服务自身的活动态（`ctx.theme.getTheme()` 和 `theme/change` 事件）——选择器里被选中的瓦片始终反映当前真正生效的主题 id，不管这个 id 是别的插件设置的，还是内置"外观"行设置的。选择本身跨刷新是否保留，取决于内置"外观"行自己的偏好存档机制对当前生效 id 的处理方式。
+
+每个家族的配色数值都移植自具名的上游开源项目；从该项目语义化调色板到 DSH 自己的 `--dsw-alias-*`/`--dsw-specific-*` 设计 token 的映射，是本插件自己的实现。逐家族的署名和许可证全文见 [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md)。
 
 ## License
 

@@ -2,169 +2,134 @@
  * Client-half entry for @onezero-y/dsh-tint-theme, loaded by the DSH Web GUI
  * through the `dsh.client` manifest field in package.json.
  *
- * Two capabilities, one plugin (see the design record at
- * .agents/notes/2026-08-14-design-decisions.md for why they are not split):
- *  1. Registers this plugin's own original theme(s) into the official
- *     ThemeService, via `ctx.theme.register(...)` — the sanctioned
- *     third-party theme surface (see client/palette.ts for the original
- *     color values).
- *  2. Registers an accent-color tint overlay via `ctx.theme.overrideTokens(...)`
- *     — a token-layer stack that applies over whichever theme is currently
- *     active (this plugin's own, DSH's built-in light/dark, or a theme
- *     registered by any other installed plugin), independent of capability 1
- *     (see client/accents.ts for the scope decision on which token it writes).
- *
- * Both preferences persist through this plugin's OWN settings section
- * (`ctx.settingsScope.bind`, see ../settings-namespace.ts), read and written
- * exclusively here — not through the stock theme/locale services' own
- * settings sections, which this plugin has no write access to and which
- * (per the installed `dsh-client-ui-theme` package's own compiled
- * `ThemeRuntime.setTheme`) only ever persist their OWN three built-in
- * preference ids, never a third-party registered theme id like the ones
- * this plugin registers.
+ * Registers every shipped skin family into the official `ThemeService` (the
+ * sanctioned third-party theme surface, `ctx.theme.register(...)`) and adds
+ * a picker row to the settings General section (`ctx.slots`). Selection
+ * state is driven entirely from the theme service's own live snapshot
+ * (`ctx.theme.getTheme()` + the `theme/change` event) — this plugin does
+ * NOT persist a preference of its own. That is a deliberate architecture
+ * decision, not an oversight: confirmed against the official
+ * `deepseek-ai/deepseek-harness` checkout, `packages/host/apiproxy`'s own
+ * `WEB_SETTINGS_NAMESPACES` allowlist means a third-party plugin's own
+ * settings namespace is never exposed to the browser
+ * (`settings-not-exposed`, identical to an unregistered namespace), so a
+ * picker driven by that channel can never reflect a correct selected state.
+ * Cross-reload persistence of the *choice itself* rides whatever mechanism
+ * the built-in Appearance row's own preference already uses (the theme
+ * service's own settings document, for its own three built-in ids) when
+ * the active id is one of this plugin's; for a third-party id specifically,
+ * that document is not written back to (confirmed by reading the installed
+ * `dsh-client-ui-theme` package's own compiled `ThemeRuntime.setTheme`), so
+ * a reload currently returns to whatever the built-in Appearance row's own
+ * persisted preference is. Adding this plugin's own localStorage-backed
+ * persistence layer (the pattern several third-party skin plugins use to
+ * work around the same allowlist boundary) is a candidate follow-up, not
+ * implemented in this pass.
  *
  * IMPORTANT — client bundle purity gate: none of `@deepseek-ai/dsh-client-ui-theme`,
- * `-ui-slots`, `-locale`, or `-ui-settings` are in the host loader's frozen
- * module table (confirmed by reading `packages/client/tsdown.client.ts`'s
- * `CLIENT_EXTERNALS` in a `deepseek-ai/deepseek-harness` checkout), so this
- * module tree must never import a *value* from them — only types (erased at
- * build time). Every service instance below (`ctx.theme`, `ctx.slots`,
- * `ctx.locale`, `ctx.settingsScope`) is obtained exclusively through Cordis
- * service injection, never through a direct module import of a runtime class.
+ * `-ui-slots`, or `-locale` are in the host loader's frozen module table, so
+ * this module tree must never import a *value* from them — only types
+ * (erased at build time). Every service instance below (`ctx.theme`,
+ * `ctx.slots`, `ctx.locale`) is obtained exclusively through Cordis service
+ * injection.
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
-import type { BoundActions, HandleOf } from '@deepseek-ai/dsh-client-ui-slots'
-// Type-only: pulls in the ambient `ctx.theme` / `ctx.slots` / `ctx.locale` /
-// `ctx.settingsScope` Context merges from these packages without importing
-// any runtime value from them (erased at build time — see the purity-gate
-// note above). Confirmed against the published packages (npm registry,
-// 2026-08-14): dsh-client-ui-theme, dsh-client-locale, and
-// dsh-client-ui-settings each export a "./client" subpath; dsh-client-ui-slots
-// does not — its root export already carries the ambient `ctx.slots` merge,
-// so only "." is imported for it (via the named-type import above).
+import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
+// Type-only: pulls in the ambient `ctx.theme` / `ctx.locale` Context merges,
+// and (critically) the `SlotMap` declaration-merge for every settings slot
+// key ('settings.general.item' among them) that `dsh-client-ui-settings`
+// contributes — without importing any runtime value from them (erased at
+// build time).
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-import { overridesForAccent } from './accents.ts'
-import { en, zh, type TintThemeKey } from './locales.ts'
-import { REGISTERED_THEMES, TINT_THEME_DARK_ID, TINT_THEME_LIGHT_ID } from './palette.ts'
-import { createTintRowStore } from './settings-store.ts'
-import { TintRow, type TintRowInjected } from './TintRow.tsx'
-import { TINT_SETTINGS_NAMESPACE, type TintThemeSettings } from '../settings-namespace.ts'
+import type { ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
+import { createAdaptiveResolver, type AdaptiveResolver } from './adaptive.ts'
+import { SKIN_FAMILIES } from './families/index.ts'
+import { en, zh, type SkinKey } from './locales.ts'
+import { createSkinRowStore } from './settings-store.ts'
+import { findFamilyBySkinId, skinIdsOfFamily } from './skins.ts'
+import { SkinRow, type SkinRowInjected } from './SkinRow.tsx'
 
-/** Stable Cordis plugin id for the client half. Also this plugin's `overrideTokens` layer source id. */
+/** Stable Cordis plugin id for the client half. */
 export const name = 'dsh-tint-theme-client'
 
 /** Namespace owning this plugin's settings-row copy. */
-const SETTINGS_NS = 'settings.tint-theme'
+const SETTINGS_NS = 'settings.dsh-tint-theme'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
-    /** This plugin's own settings-row copy (the tint-theme row). */
-    'settings.tint-theme': TintThemeKey
+    /** This plugin's own settings-row copy (the skin picker row). */
+    'settings.dsh-tint-theme': SkinKey
   }
 }
 
-/**
- * Required client services: `theme` for both capabilities (register + tint),
- * `slots` for the settings-row UI, `locale` for its copy, and
- * `connection`/`remote`/`settingsScope` for this plugin's own durable
- * persistence — the same trio the installed `dsh-client-ui-theme` and
- * `dsh-client-locale` packages both declare (confirmed by reading their
- * compiled `client.js`) for the identical reason: `SettingsScopeBinder.bind`
- * documents that its CALLER must inject `connection` for the transport and
- * `remote` for the forwarded settings invalidation.
- */
-export const inject = ['theme', 'slots', 'locale', 'connection', 'remote', 'settingsScope']
+/** Required client services: theme (register + read/write active theme), slots + locale (settings row). */
+export const inject = ['theme', 'slots', 'locale']
 
 /**
- * Client plugin body: register this plugin's theme(s) and settings-row
- * dictionaries, bind this plugin's own durable settings section, and wire
- * the two preferences (palette choice, accent tint) to their respective
- * `ctx.theme` calls — restoring the persisted choice on boot and reapplying
- * it whenever the settings scope changes (a second browser tab, or a
- * settings-document edit made elsewhere).
+ * Client plugin body: register every shipped family into `ctx.theme`, keep
+ * an adaptive resolver listening for system color-scheme flips, and
+ * register the skin picker row into Settings > General.
  * @param ctx - Client Cordis context, with the services above guaranteed present.
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => {
-    const disposers = REGISTERED_THEMES.map((definition) => ctx.theme.register(definition))
+    const disposers = SKIN_FAMILIES.flatMap((family) => [
+      ctx.theme.register(family.light),
+      ctx.theme.register(family.dark),
+    ])
     return () => disposers.forEach((dispose) => dispose())
-  }, 'dsh-tint-theme: register themes')
+  }, 'dsh-tint-theme: register skin families')
 
   ctx.effect(() => ctx.locale.register(SETTINGS_NS, { zh, en }), 'dsh-tint-theme: settings row dictionaries')
 
-  const scope = ctx.settingsScope.bind<TintThemeSettings>({ namespace: TINT_SETTINGS_NAMESPACE })
-
-  /**
-   * Apply a persisted palette choice to the live theme. Deliberately a
-   * one-way action, never a "restore" one: this only ever calls
-   * `ctx.theme.setTheme` with one of THIS plugin's own registered ids, and
-   * does nothing for an absent/"off" choice — it never calls
-   * `setTheme('system')` on its own initiative. That keeps "off" a pure
-   * persistence clear rather than a second theme-changing action, so
-   * toggling this row off can never clobber a theme the user picked through
-   * the stock Appearance row or another plugin after last picking one here.
-   * @param themeId - one of this plugin's own registered ids, or undefined.
-   */
-  const applyPalette = (themeId: string | undefined): void => {
-    if (themeId === TINT_THEME_LIGHT_ID || themeId === TINT_THEME_DARK_ID) {
-      ctx.theme.setTheme(themeId)
+  let adaptive: AdaptiveResolver | undefined
+  ctx.effect(() => {
+    const media =
+      typeof globalThis.matchMedia === 'function'
+        ? globalThis.matchMedia('(prefers-color-scheme: dark)')
+        : { matches: ctx.theme.getTheme().active.colorScheme === 'dark' }
+    adaptive = createAdaptiveResolver({
+      media,
+      getActiveId: () => ctx.theme.getTheme().active.id,
+      setActiveId: (id) => ctx.theme.setTheme(id),
+      findFamily: (id) => SKIN_FAMILIES.find((family) => family.id === id),
+      findFamilyBySkinId: (skinId) => findFamilyBySkinId(SKIN_FAMILIES, skinId),
+    })
+    return () => {
+      adaptive?.dispose()
+      adaptive = undefined
     }
-  }
+  }, 'dsh-tint-theme: adaptive family resolver')
 
-  let disposeAccentOverride: (() => void) | undefined
-  /**
-   * Apply a persisted accent choice as a token override layer, replacing
-   * whatever layer this plugin previously stacked (never adding a second one).
-   * @param accent - one of ACCENT_SWATCHES' ids, or undefined for no tint.
-   */
-  const applyAccent = (accent: string | undefined): void => {
-    disposeAccentOverride?.()
-    disposeAccentOverride = undefined
-    if (accent === undefined) return
-    const overrides = overridesForAccent(accent)
-    if (overrides === undefined) return
-    disposeAccentOverride = ctx.theme.overrideTokens(name, overrides)
+  const store = createSkinRowStore()
+  let bound: BoundActions<typeof store> | undefined
+  const sync = (snapshot: ThemeSnapshot): void => {
+    const family = findFamilyBySkinId(SKIN_FAMILIES, snapshot.active.id)
+    bound?.sync(family?.id, snapshot.revision)
   }
-  ctx.effect(() => () => disposeAccentOverride?.(), 'dsh-tint-theme: accent override teardown')
+  ctx.on('theme/change', sync)
 
-  const store = createTintRowStore()
-  let bound: BoundActions<HandleOf<typeof store>> | undefined
-  const sync = (value: TintThemeSettings | undefined): void => {
-    bound?.sync(value?.themeId, value?.accent, scope.getSnapshot().revision ?? 0)
-  }
-
-  const adopt = (): void => {
-    const value = scope.getSnapshot().value
-    applyPalette(value?.themeId)
-    applyAccent(value?.accent)
-    sync(value)
-  }
-  ctx.effect(() => scope.subscribe(adopt), 'dsh-tint-theme: settings scope adoption')
-  adopt()
-
-  const injected = (actions: BoundActions<HandleOf<typeof store>>): TintRowInjected => {
+  const injected = (actions: BoundActions<typeof store>): SkinRowInjected => {
     bound = actions
-    sync(scope.getSnapshot().value)
+    // Re-sync from the getter so no event is lost between registration and
+    // first render (the store's revision guard drops stale duplicates).
+    sync(ctx.theme.getTheme())
     return {
-      setPalette: (choice) => {
-        if (choice === 'off') {
-          void scope.unset('themeId')
+      selectFamily: (familyId) => {
+        if (familyId === undefined) {
+          // Defer to the built-in appearance: this plugin never calls
+          // setTheme('system') itself, it only ever clears its own claim by
+          // switching away from any of its own registered ids. There is no
+          // official "give control back" primitive; switching to the
+          // runtime's currently-preferred builtin scheme is the closest
+          // available approximation.
+          const scheme = ctx.theme.getTheme().active.colorScheme
+          ctx.theme.setTheme(scheme === 'dark' ? 'dark' : 'light')
           return
         }
-        const themeId = choice === 'light' ? TINT_THEME_LIGHT_ID : TINT_THEME_DARK_ID
-        void scope.set('themeId', themeId)
-        applyPalette(themeId)
-      },
-      setAccent: (choice) => {
-        if (choice === 'none') {
-          void scope.unset('accent')
-          applyAccent(undefined)
-          return
-        }
-        void scope.set('accent', choice)
-        applyAccent(choice)
+        adaptive?.selectFamily(familyId)
       },
     }
   }
@@ -173,16 +138,19 @@ export function apply(ctx: ClientContext): void {
     ctx.slots.register(
       {
         name: 'settings.general.item',
-        // Ordered after the stock Appearance row (order: 10, per the installed
-        // dsh-client-ui-theme package) so this plugin's row reads as an
-        // addition alongside it, not ahead of the built-in preference.
-        id: 'tint-theme',
+        // Ordered after the stock Appearance row (order: 10, per the
+        // installed dsh-client-ui-theme package) so this row reads as an
+        // addition alongside it.
+        id: 'dsh-tint-theme',
         order: 20,
         store,
         locale: SETTINGS_NS,
         inject: injected,
       },
-      TintRow,
+      SkinRow,
     ),
   )
 }
+
+/** Every concrete skin id this plugin registers (exported for tests). */
+export const ALL_SKIN_IDS: readonly string[] = SKIN_FAMILIES.flatMap(skinIdsOfFamily)
